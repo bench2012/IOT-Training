@@ -6,19 +6,12 @@
 #include <dataStyleCSS.h>
 #include <dataTabbedcontentJS.h>
 #include <dataZeptoJS.h>
-#include <ESPUI.h>
-
-
   
 /*********
 Complete rewritten (GUi) using ESPUI
 *********/
 
 #include <ESPUI.h>
-#include "esp_sleep.h"
-#include "driver/gpio.h"
-#include "esp_err.h"
-#include "FastLED.h"
 #ifdef ESP32
   #include <WiFi.h>
   #include <AsyncTCP.h>
@@ -31,9 +24,12 @@ Complete rewritten (GUi) using ESPUI
 #include <ArduinoOTA.h>
 #include <ESPAsyncWebServer.h>
 #include "DHT.h"
+
+
 #define green_led 19
 #define red_led 12
-#define button 18
+//#define led 2
+#define button_1 18
 #define DHTPIN 4
 #define ldr 36
 #define DHTTYPE DHT11
@@ -42,7 +38,8 @@ int light_level = 0;
 int statusLabelId;
 int graphId;
 int testSwitchId;
-
+int HumidityLabelId;
+int TemperatureLabelId;
 DHT dht(DHTPIN, DHTTYPE);
 
 
@@ -64,49 +61,48 @@ const int Wifi_Retry = 3;
 
 void numberCall(Control *sender, int type) { Serial.println(sender->value); }
 
-void switchExample(Control *sender, int value) {
+void switch_green(Control *sender, int value) {
   switch (value) {
   case S_ACTIVE:
     digitalWrite(green_led,HIGH);
-    Serial.print("Button Pressed:");
+    Serial.print("Switch On:");
     break;
 
   case S_INACTIVE:
-    digitalrite(green_led,LOW);
-    Serial.print("Button release");
+    digitalWrite(green_led,LOW);
+    Serial.print("Switch Off");
     break;
   }
+}
 
+void switch_red(Control *sender, int value) {
+  switch (value) {
+  case S_ACTIVE:
+    digitalWrite(red_led,HIGH);
+    Serial.print("Switch On:");
+    break;
+
+  case S_INACTIVE:
+    digitalWrite(red_led,LOW);
+    Serial.print("Switch Off");
+    break;
+  }
   Serial.print(" ");
   Serial.println(sender->id);
 }
 
-void buttonExample(Control *sender, int type) {
-  switch (type) {
-  case B_DOWN:
-    Serial.println("Status: Red LED ON");
-    ESPUI.print(statusLabelId, "On");
-    digitalWrite(red_led, HIGH);
-    break;
 
-  case B_UP:
-    Serial.println("Status: Red LED OFF");
-    ESPUI.print(statusLabelId, "Off");
-    digitalWrite(red_led, LOW);
-    break;
-  }
-}
 
 
 void setup() {
-  ESPUI.setVerbosity(Verbosity::VerboseJSON);
+  ESPUI.setVerbosity(Verbosity::Verbose);
 
   Serial.begin(115200);
   Serial.println("Booting");
   pinMode(led, OUTPUT);
   pinMode(green_led, OUTPUT);
   pinMode(red_led, OUTPUT);
-  pinMode(button, INPUT);
+  pinMode(button_1, INPUT);
   dht.begin();
 
   //All the Wifi connection bit 
@@ -184,13 +180,10 @@ void setup() {
 
  
   //Start ESPUI
-  statusLabelId = ESPUI.label("Green LED Status:", ControlColor::Turquoise, "Off");
   HumidityLabelId = ESPUI.label("Humidity:", ControlColor::Emerald, "0");
   TemperatureLabelId = ESPUI.label("Temperature:", ControlColor::Emerald, "0");
-  testSwitchId = ESPUI.switcher("Button one", &switchExample, ControlColor::Alizarin, false);
-  ESPUI.button("Red LED Button", &buttonExample, ControlColor::Wetasphalt, "Off");
-  ESPUI.number("Humidity", &h, ControlColor::Alizarin, 5, 0, 10);
-  ESPUI.number("Temperature", &t, ControlColor::Alizarin, 5, 0, 10);   
+  testSwitchId = ESPUI.switcher("Button one", &switch_red, ControlColor::Alizarin, false);
+  ESPUI.switcher("Green LED ", &switch_green, ControlColor::Wetasphalt, false);
   graphId = ESPUI.graph("Light Level", ControlColor::Wetasphalt);     
 
   ESPUI.begin("IOT Dashboard");
@@ -210,7 +203,7 @@ void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("\tConnected to %s IP address %s strength %d%%\r\n", ssid, WiFi.localIP().toString().c_str(), 2 * (WiFi.RSSI() + 100));
     WiFi.setAutoReconnect(false);
-    digitalWrite(LED, ON);
+    digitalWrite(led, HIGH);
 
   } else {
     WiFi.mode(WIFI_AP); // drop station mode if LAN/WiFi is down
@@ -225,10 +218,10 @@ void Wifi_connecting_blink() {
 
     delay(500);
     Serial.print(".");
-     digitalWrite(led,ON);
+     digitalWrite(led,HIGH);
     
         delay(800); 
-     digitalWrite(led,OFF);
+     digitalWrite(led,LOW);
 
         delay(500);
 
@@ -238,18 +231,19 @@ void Wifi_connecting_blink() {
 
 
 void loop() {
-  buttonState = digitalRead(button);
+  buttonState = digitalRead(button_1);
   Serial.print("Current Light level ");
   light_level=analogRead(ldr);
   Serial.println(light_level);
-  ESPUI.addGraphPoint(graphId, light_level);
   if (buttonState == LOW) {
     // turn LED on:
     digitalWrite(red_led, HIGH);
     Serial.println("button is Pressed!");
+    buttonState=!buttonState;
   } else {
     // turn LED off:
     digitalWrite(red_led, LOW);
+    buttonState=!buttonState;
   }
 
   delay(2000);
@@ -259,15 +253,16 @@ void loop() {
 float h = dht.readHumidity();
   // Read temperature as Celsius (the default)
 float t = dht.readTemperature();
-
+float f = dht.readTemperature(true);
+float hif = dht.computeHeatIndex(f, h);
+  // Compute heat index in Celsius (isFahreheit = false)
+float hic = dht.computeHeatIndex(t, h, false);
 if (isnan(h) || isnan(t) || isnan(f)) {
    Serial.println(F("Failed to read from DHT sensor!"));
    return;
   }
     // Compute heat index in Fahrenheit (the default)
-float hif = dht.computeHeatIndex(f, h);
-  // Compute heat index in Celsius (isFahreheit = false)
-float hic = dht.computeHeatIndex(t, h, false);
+
 
   Serial.print(F("Humidity: "));
   Serial.print(h);
@@ -282,9 +277,10 @@ float hic = dht.computeHeatIndex(t, h, false);
   Serial.println(F("°F"));
 
 
-    ESPUI.print(HumidityLabelId, h);
-    ESPUI.print(TemperatureLabelId, t);
-    ESPUI.updateSwitcher(testSwitchId, buttonstate);
+    ESPUI.print(HumidityLabelId, String(h));
+    ESPUI.print(TemperatureLabelId, String(t));
+    ESPUI.updateSwitcher(testSwitchId, buttonState);
+    ESPUI.addGraphPoint(graphId, light_level);
 
 
     ArduinoOTA.handle(); 
